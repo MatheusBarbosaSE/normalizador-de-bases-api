@@ -32,3 +32,7 @@ PHONE_THRESHOLD: float = 0.7
 
 # Quantidade de valores nao-nulos analisados para determinar o tipo da coluna
 SAMPLE_SIZE: int = 200
+
+# Delimitadores e configuracoes do arquivo de saida (CSV)
+OUTPUT_DELIMITER: str = ";"
+OUTPUT_LINE_BREAK: str = "\r\n"

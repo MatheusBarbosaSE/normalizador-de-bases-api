@@ -1,11 +1,59 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
 
-/* Reset basico para garantir que o AG Grid e a tela ocupem 100% da altura */
+@theme {
+  --font-ui: 'Instrument Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-chrome: #0f1117;
+  --color-chrome-mid: #1a1d27;
+  --color-chrome-light: #252836;
+  --color-chrome-border: #2e3245;
+  --color-cell-bg: #ffffff;
+  --color-cell-header: #f0f1f5;
+  --color-cell-border: #d4d6e0;
+  --color-accent: #4f6ef7;
+  --color-accent-light: #e8ecff;
+  --color-accent-dim: #2a3a8a;
+  --color-selection: rgba(79, 110, 247, 0.15);
+  --color-selection-border: #4f6ef7;
+  --color-text-chrome: #e4e6f0;
+  --color-text-muted: #8b90a7;
+  --color-success: #22c55e;
+  --color-warn: #f59e0b;
+  --color-danger: #ef4444;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 html, body, #root {
   height: 100%;
+  width: 100%;
   margin: 0;
   padding: 0;
-  background-color: #f3f4f6; /* Fundo cinza claro padrao de sistemas corporativos */
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--color-chrome);
+  color: var(--color-text-chrome);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-chrome-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
 }

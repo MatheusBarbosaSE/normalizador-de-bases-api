@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Reset basico para garantir que o AG Grid e a tela ocupem 100% da altura */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #f3f4f6; /* Fundo cinza claro padrao de sistemas corporativos */
+}

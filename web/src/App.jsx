@@ -1,19 +1,22 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { Play, Download, UploadCloud, FileText, CheckSquare, Square, AlertCircle } from 'lucide-react';
+import { Play, Download, UploadCloud, FileText, CheckSquare, Square, AlertCircle, Eye } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
+import { read, utils } from 'xlsx';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
 
-// Funcao auxiliar para converter a string CSV do Back-end no formato exigido pelo AG Grid
-const parseCSV = (csvText) => {
-  const lines = csvText.trim().split('\n');
-  if (lines.length === 0) return { cols: [], rows: [] };
+// Funcao auxiliar usada apenas para a PRÉ-VISUALIZAÇÃO (que possui cabeçalho original)
+const parseCSVPreview = (csvText) => {
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length === 0 || !csvText) return { cols: [], rows: [] };
 
-  const headers = lines[0].split(',');
-  const cols = headers.map(h => ({ field: h, headerName: h, flex: 1 }));
+  const separator = lines[0].includes(';') ? ';' : ',';
+  
+  const headers = lines[0].split(separator).map(h => h.trim());
+  const cols = headers.map(h => ({ field: h, headerName: h, flex: 1, minWidth: 150 }));
 
   const rows = lines.slice(1).map(line => {
-    const values = line.split(',');
+    const values = line.split(separator);
     const rowObj = {};
     headers.forEach((h, i) => {
       rowObj[h] = values[i] ? values[i].trim() : '';
@@ -30,10 +33,11 @@ const App = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [viewState, setViewState] = useState('empty');
   
   const [rowData, setRowData] = useState([]);
   const [columnDefs, setColumnDefs] = useState([]);
-  const [rawCsv, setRawCsv] = useState(null); // Armazena a string original para o download
+  const [rawCsv, setRawCsv] = useState(null);
   
   const [activeOptions, setActiveOptions] = useState({
     useExtras: false,
@@ -63,10 +67,46 @@ const App = () => {
     if (file) {
       setSelectedFile(file);
       setErrorMsg(null);
+      setViewState('preview');
+      setRawCsv(null);
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          // Se for CSV, usa parser de preview
+          if (file.name.toLowerCase().endsWith('.csv')) {
+             const text = new TextDecoder("utf-8").decode(e.target.result);
+             const { cols, rows } = parseCSVPreview(text);
+             setColumnDefs(cols);
+             setRowData(rows);
+             return;
+          }
+
+          // Se for Excel, usa o SheetJS
+          const data = new Uint8Array(e.target.result);
+          const workbook = read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          const json = utils.sheet_to_json(worksheet, { defval: '' });
+
+          if (json.length > 0) {
+            const headers = Object.keys(json[0]);
+            const cols = headers.map(h => ({ field: h, headerName: h, flex: 1, minWidth: 150 }));
+            setColumnDefs(cols);
+            setRowData(json);
+          } else {
+            setColumnDefs([]);
+            setRowData([]);
+          }
+        } catch (err) {
+          setErrorMsg('Falha ao ler o arquivo para pré-visualização.');
+        }
+      };
+      reader.readAsArrayBuffer(file);
     }
   };
 
-  // Funcao principal que dispara a requisicao para a API Python
   const handleProcess = async () => {
     if (!selectedFile) return;
     
@@ -76,8 +116,6 @@ const App = () => {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-      
-      // Envia os parametros apenas se o checkbox correspondente estiver ativo
       formData.append('extras', activeOptions.useExtras ? formValues.extras : '');
       formData.append('concat', activeOptions.useConcat ? formValues.concat : '');
       formData.append('ignore', activeOptions.useIgnore ? formValues.ignore : '');
@@ -95,13 +133,31 @@ const App = () => {
 
       const data = await response.json();
       
-      // Salva o texto bruto para o momento da exportacao
+      // 1. Salva o CSV exatamente como a API mandou (SEM cabeçalho) para o Download
       setRawCsv(data.csv_content);
 
-      // Converte o texto em estrutura de grid para visualizacao
-      const { cols, rows } = parseCSV(data.csv_content);
+      // 2. Extrai os nomes das colunas da legenda apenas para criar os titulos do Data Grid
+      const sortedLegend = data.legend.sort((a, b) => a.position - b.position);
+      const headers = sortedLegend.map(col => col.label);
+      const cols = headers.map(h => ({ field: h, headerName: h, flex: 1, minWidth: 150 }));
+
+      // 3. Popula a tabela manualmente ligando o dado sem titulo ao titulo correto
+      const lines = data.csv_content.trim().split(/\r?\n/);
+      const separator = lines.length > 0 && lines[0].includes(';') ? ';' : ',';
+      
+      const rows = lines.map(line => {
+        if (!line.trim()) return null;
+        const values = line.split(separator);
+        const rowObj = {};
+        headers.forEach((h, i) => {
+          rowObj[h] = values[i] ? values[i].trim() : '';
+        });
+        return rowObj;
+      }).filter(Boolean); // Remove linhas vazias
+
       setColumnDefs(cols);
       setRowData(rows);
+      setViewState('processed');
 
     } catch (error) {
       setErrorMsg(error.message);
@@ -110,13 +166,10 @@ const App = () => {
     }
   };
 
-  // Gera um arquivo fisico na memoria do navegador e forca o download
   const handleDownload = () => {
     if (!rawCsv) return;
-    
     const blob = new Blob([rawCsv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', 'base_higienizada.csv');
@@ -137,7 +190,6 @@ const App = () => {
       className="flex flex-col h-full w-full overflow-hidden select-none" 
       style={{ fontFamily: "var(--font-ui)", background: "var(--color-chrome)" }}
     >
-      {/* Barra Superior */}
       <div
         className="flex items-center gap-3 px-4 shrink-0"
         style={{
@@ -164,10 +216,7 @@ const App = () => {
         </div>
       </div>
 
-      {/* Area Principal */}
       <div className="flex flex-1 overflow-hidden">
-        
-        {/* Painel Lateral Escuro */}
         <div
           className="flex flex-col shrink-0 relative"
           style={{
@@ -177,7 +226,6 @@ const App = () => {
           }}
         >
           <div className="flex-1 overflow-y-auto pb-20">
-            {/* Secao de Upload */}
             <div style={{ padding: "24px 20px", borderBottom: "1px solid var(--color-chrome-border)" }}>
               <div className="text-xs font-semibold mb-4 tracking-widest uppercase" style={{ color: "var(--color-text-muted)" }}>
                 Passo 1: Arquivo Base
@@ -220,14 +268,12 @@ const App = () => {
               </label>
             </div>
 
-            {/* Secao de Parametros */}
             <div style={{ padding: "24px 20px" }}>
               <div className="text-xs font-semibold mb-4 tracking-widest uppercase" style={{ color: "var(--color-text-muted)" }}>
                 Passo 2: Regras de Edição
               </div>
               
               <div className="flex flex-col gap-4">
-                
                 <div className="flex flex-col">
                   <div 
                     className="flex items-center gap-3 cursor-pointer group"
@@ -248,12 +294,7 @@ const App = () => {
                       onChange={handleValueChange}
                       placeholder="Colunas (Ex: D, F)" 
                       className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ 
-                        background: "var(--color-chrome-light)", 
-                        color: "var(--color-text-chrome)", 
-                        border: "1px solid var(--color-accent-dim)", 
-                        fontFamily: "var(--font-mono)" 
-                      }}
+                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
                     />
                   )}
                 </div>
@@ -278,12 +319,7 @@ const App = () => {
                       onChange={handleValueChange}
                       placeholder="Colunas (Ex: A, B)" 
                       className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ 
-                        background: "var(--color-chrome-light)", 
-                        color: "var(--color-text-chrome)", 
-                        border: "1px solid var(--color-accent-dim)", 
-                        fontFamily: "var(--font-mono)" 
-                      }}
+                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
                     />
                   )}
                 </div>
@@ -308,12 +344,7 @@ const App = () => {
                       onChange={handleValueChange}
                       placeholder="Colunas (Ex: C)" 
                       className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ 
-                        background: "var(--color-chrome-light)", 
-                        color: "var(--color-text-chrome)", 
-                        border: "1px solid var(--color-accent-dim)", 
-                        fontFamily: "var(--font-mono)" 
-                      }}
+                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
                     />
                   )}
                 </div>
@@ -338,20 +369,13 @@ const App = () => {
                       onChange={handleValueChange}
                       placeholder="Coluna (Ex: G)" 
                       className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ 
-                        background: "var(--color-chrome-light)", 
-                        color: "var(--color-text-chrome)", 
-                        border: "1px solid var(--color-accent-dim)", 
-                        fontFamily: "var(--font-mono)" 
-                      }}
+                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
                     />
                   )}
                 </div>
-
               </div>
             </div>
             
-            {/* Mensagem de Erro da API */}
             {errorMsg && (
               <div className="mx-5 mb-4 p-3 rounded flex gap-2 items-start" style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid var(--color-danger)" }}>
                 <AlertCircle size={16} style={{ color: "var(--color-danger)", flexShrink: 0, marginTop: 2 }} />
@@ -380,11 +404,13 @@ const App = () => {
           </div>
         </div>
 
-        {/* Area do Grid Clara */}
         <div className="flex-1 flex flex-col p-6" style={{ background: "var(--color-cell-bg)" }}>
-          
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold" style={{ color: "var(--color-chrome-mid)" }}>Dados Processados</h2>
+            <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: "var(--color-chrome-mid)" }}>
+              {viewState === 'preview' && <><Eye size={20} className="text-slate-400"/> Pré-visualização (Original)</>}
+              {viewState === 'processed' && 'Dados Processados'}
+              {viewState === 'empty' && 'Visualizador'}
+            </h2>
             <button 
               onClick={handleDownload}
               className="flex items-center gap-2 px-4 py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-100"
@@ -393,18 +419,18 @@ const App = () => {
                 color: "var(--color-chrome-mid)",
                 border: "1px solid var(--color-cell-border)"
               }}
-              disabled={rowData.length === 0}
+              disabled={viewState !== 'processed'}
             >
               <Download size={16} /> Exportar CSV
             </button>
           </div>
 
-          <div className="flex-1 border rounded shadow-sm ag-theme-quartz" style={{ borderColor: "var(--color-cell-border)" }}>
-            {rowData.length === 0 ? (
+          <div className="flex-1 w-full h-full border rounded shadow-sm ag-theme-quartz" style={{ borderColor: "var(--color-cell-border)" }}>
+            {viewState === 'empty' ? (
               <div className="h-full w-full flex flex-col items-center justify-center" style={{ background: "var(--color-cell-header)" }}>
                 <FileText size={48} style={{ color: "var(--color-cell-border)", marginBottom: 16 }} />
                 <p className="text-sm font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Faça o upload e preencha as regras opcionais para iniciar.
+                  Faça o upload do arquivo para visualizar os dados.
                 </p>
               </div>
             ) : (
@@ -417,7 +443,6 @@ const App = () => {
             )}
           </div>
         </div>
-
       </div>
     </div>
   );

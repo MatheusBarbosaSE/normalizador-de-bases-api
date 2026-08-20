@@ -1,19 +1,33 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { Play, Download, UploadCloud, FileText, CheckSquare, Square, AlertCircle, Eye } from 'lucide-react';
+import { Play, Download, UploadCloud, FileText, CheckSquare, Square, AlertCircle, Eye, Circle, CheckCircle2 } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
 import { read, utils } from 'xlsx';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
 
-// Funcao auxiliar usada apenas para a PRÉ-VISUALIZAÇÃO (que possui cabeçalho original)
+// Funcao auxiliar para converter indice numerico (0, 1, 2) para letra de coluna do Excel (A, B, C)
+const getColumnLetter = (colIndex) => {
+  let letter = '';
+  let temp = colIndex;
+  while (temp >= 0) {
+    letter = String.fromCharCode((temp % 26) + 65) + letter;
+    temp = Math.floor(temp / 26) - 1;
+  }
+  return letter;
+};
+
+// Funcao auxiliar usada apenas para a PRE-VISUALIZACAO (que possui cabecalho original)
 const parseCSVPreview = (csvText) => {
   const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length === 0 || !csvText) return { cols: [], rows: [] };
+  if (lines.length === 0 || !csvText) return { cols: [], rows: [], rawHeaders: [] };
 
   const separator = lines[0].includes(';') ? ';' : ',';
   
   const headers = lines[0].split(separator).map(h => h.trim());
   const cols = headers.map(h => ({ field: h, headerName: h, flex: 1, minWidth: 150 }));
+  
+  // Extrai cabeçalhos com suas respectivas letras
+  const rawHeaders = headers.map((h, i) => ({ letter: getColumnLetter(i), name: h }));
 
   const rows = lines.slice(1).map(line => {
     const values = line.split(separator);
@@ -24,7 +38,7 @@ const parseCSVPreview = (csvText) => {
     return rowObj;
   });
 
-  return { cols, rows };
+  return { cols, rows, rawHeaders };
 };
 
 const App = () => {
@@ -38,6 +52,7 @@ const App = () => {
   const [rowData, setRowData] = useState([]);
   const [columnDefs, setColumnDefs] = useState([]);
   const [rawCsv, setRawCsv] = useState(null);
+  const [fileHeaders, setFileHeaders] = useState([]); // Armazena a lista de colunas para os checkboxes
   
   const [activeOptions, setActiveOptions] = useState({
     useExtras: false,
@@ -46,10 +61,11 @@ const App = () => {
     useManualPhone: false
   });
 
+  // Atualizado para usar arrays (multipla escolha) e string (escolha unica para telefone)
   const [formValues, setFormValues] = useState({
-    extras: '',
-    concat: '',
-    ignore: '',
+    extras: [],
+    concat: [],
+    ignore: [],
     manualPhone: ''
   });
 
@@ -57,9 +73,21 @@ const App = () => {
     setActiveOptions(prev => ({ ...prev, [option]: !prev[option] }));
   };
 
-  const handleValueChange = (event) => {
-    const { name, value } = event.target;
-    setFormValues(prev => ({ ...prev, [name]: value }));
+  // Funcao para gerenciar as selecoes de multiplas colunas
+  const handleMultiColumnSelect = (field, letter) => {
+    setFormValues(prev => {
+      const currentList = prev[field];
+      if (currentList.includes(letter)) {
+        return { ...prev, [field]: currentList.filter(l => l !== letter) };
+      } else {
+        return { ...prev, [field]: [...currentList, letter] };
+      }
+    });
+  };
+
+  // Funcao para gerenciar a selecao unica (Radio Button)
+  const handleSingleColumnSelect = (field, letter) => {
+    setFormValues(prev => ({ ...prev, [field]: letter }));
   };
 
   const handleFileChange = (event) => {
@@ -69,20 +97,23 @@ const App = () => {
       setErrorMsg(null);
       setViewState('preview');
       setRawCsv(null);
+      
+      // Reseta as selecoes anteriores
+      setFormValues({ extras: [], concat: [], ignore: [], manualPhone: '' });
+      setActiveOptions({ useExtras: false, useConcat: false, useIgnore: false, useManualPhone: false });
 
       const reader = new FileReader();
       reader.onload = (e) => {
         try {
-          // Se for CSV, usa parser de preview
           if (file.name.toLowerCase().endsWith('.csv')) {
              const text = new TextDecoder("utf-8").decode(e.target.result);
-             const { cols, rows } = parseCSVPreview(text);
+             const { cols, rows, rawHeaders } = parseCSVPreview(text);
              setColumnDefs(cols);
              setRowData(rows);
+             setFileHeaders(rawHeaders);
              return;
           }
 
-          // Se for Excel, usa o SheetJS
           const data = new Uint8Array(e.target.result);
           const workbook = read(data, { type: 'array' });
           const firstSheetName = workbook.SheetNames[0];
@@ -93,11 +124,16 @@ const App = () => {
           if (json.length > 0) {
             const headers = Object.keys(json[0]);
             const cols = headers.map(h => ({ field: h, headerName: h, flex: 1, minWidth: 150 }));
+            
+            const rawHeaders = headers.map((h, i) => ({ letter: getColumnLetter(i), name: h }));
+            
             setColumnDefs(cols);
             setRowData(json);
+            setFileHeaders(rawHeaders);
           } else {
             setColumnDefs([]);
             setRowData([]);
+            setFileHeaders([]);
           }
         } catch (err) {
           setErrorMsg('Falha ao ler o arquivo para pré-visualização.');
@@ -116,9 +152,11 @@ const App = () => {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('extras', activeOptions.useExtras ? formValues.extras : '');
-      formData.append('concat', activeOptions.useConcat ? formValues.concat : '');
-      formData.append('ignore', activeOptions.useIgnore ? formValues.ignore : '');
+      
+      // Converte as listas de volta para a string que a API Python espera (Ex: "A, C, D")
+      formData.append('extras', activeOptions.useExtras ? formValues.extras.join(', ') : '');
+      formData.append('concat', activeOptions.useConcat ? formValues.concat.join(', ') : '');
+      formData.append('ignore', activeOptions.useIgnore ? formValues.ignore.join(', ') : '');
       formData.append('manual_phone', activeOptions.useManualPhone ? formValues.manualPhone : '');
 
       const response = await fetch('http://localhost:8000/api/normalize', {
@@ -133,15 +171,12 @@ const App = () => {
 
       const data = await response.json();
       
-      // 1. Salva o CSV exatamente como a API mandou (SEM cabeçalho) para o Download
       setRawCsv(data.csv_content);
 
-      // 2. Extrai os nomes das colunas da legenda apenas para criar os titulos do Data Grid
       const sortedLegend = data.legend.sort((a, b) => a.position - b.position);
       const headers = sortedLegend.map(col => col.label);
       const cols = headers.map(h => ({ field: h, headerName: h, flex: 1, minWidth: 150 }));
 
-      // 3. Popula a tabela manualmente ligando o dado sem titulo ao titulo correto
       const lines = data.csv_content.trim().split(/\r?\n/);
       const separator = lines.length > 0 && lines[0].includes(';') ? ';' : ',';
       
@@ -153,7 +188,7 @@ const App = () => {
           rowObj[h] = values[i] ? values[i].trim() : '';
         });
         return rowObj;
-      }).filter(Boolean); // Remove linhas vazias
+      }).filter(Boolean);
 
       setColumnDefs(cols);
       setRowData(rows);
@@ -184,6 +219,40 @@ const App = () => {
     resizable: true,
     minWidth: 120,
   }), []);
+
+  // Componente interno para renderizar a lista de colunas dinamicamente
+  const ColumnSelector = ({ type, field, isSingle = false }) => {
+    if (fileHeaders.length === 0) return null;
+    
+    return (
+      <div 
+        className="mt-3 p-2 rounded max-h-40 overflow-y-auto flex flex-col gap-1"
+        style={{ background: "var(--color-chrome-light)", border: "1px solid var(--color-chrome-border)" }}
+      >
+        {fileHeaders.map((header) => {
+          const isSelected = isSingle ? formValues[field] === header.letter : formValues[field].includes(header.letter);
+          
+          return (
+            <div 
+              key={header.letter}
+              className="flex items-center gap-3 p-1.5 rounded cursor-pointer transition-colors hover:bg-[var(--color-chrome-border)]"
+              onClick={() => isSingle ? handleSingleColumnSelect(field, header.letter) : handleMultiColumnSelect(field, header.letter)}
+            >
+              {isSingle ? (
+                isSelected ? <CheckCircle2 size={16} style={{ color: "var(--color-accent)" }} /> : <Circle size={16} style={{ color: "var(--color-text-muted)" }} />
+              ) : (
+                isSelected ? <CheckSquare size={16} style={{ color: "var(--color-accent)" }} /> : <Square size={16} style={{ color: "var(--color-text-muted)" }} />
+              )}
+              <span className="text-xs truncate font-medium" style={{ color: "var(--color-text-chrome)" }}>
+                <span style={{ color: "var(--color-accent)", marginRight: "6px" }}>{header.letter}</span>
+                {header.name}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div 
@@ -220,7 +289,7 @@ const App = () => {
         <div
           className="flex flex-col shrink-0 relative"
           style={{
-            width: 320,
+            width: 340,
             background: "var(--color-chrome-mid)",
             borderRight: "1px solid var(--color-chrome-border)",
           }}
@@ -273,10 +342,10 @@ const App = () => {
                 Passo 2: Regras de Edição
               </div>
               
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-5">
                 <div className="flex flex-col">
                   <div 
-                    className="flex items-center gap-3 cursor-pointer group"
+                    className={`flex items-center gap-3 cursor-pointer group ${!selectedFile ? 'opacity-50 pointer-events-none' : ''}`}
                     onClick={() => handleOptionToggle('useExtras')}
                   >
                     {activeOptions.useExtras ? (
@@ -286,22 +355,12 @@ const App = () => {
                     )}
                     <span className="text-sm font-medium" style={{ color: "var(--color-text-chrome)" }}>Manter colunas extras</span>
                   </div>
-                  {activeOptions.useExtras && (
-                    <input 
-                      type="text" 
-                      name="extras"
-                      value={formValues.extras}
-                      onChange={handleValueChange}
-                      placeholder="Colunas (Ex: D, F)" 
-                      className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
-                    />
-                  )}
+                  {activeOptions.useExtras && <ColumnSelector field="extras" />}
                 </div>
 
                 <div className="flex flex-col">
                   <div 
-                    className="flex items-center gap-3 cursor-pointer group"
+                    className={`flex items-center gap-3 cursor-pointer group ${!selectedFile ? 'opacity-50 pointer-events-none' : ''}`}
                     onClick={() => handleOptionToggle('useConcat')}
                   >
                     {activeOptions.useConcat ? (
@@ -311,22 +370,12 @@ const App = () => {
                     )}
                     <span className="text-sm font-medium" style={{ color: "var(--color-text-chrome)" }}>Concatenar colunas</span>
                   </div>
-                  {activeOptions.useConcat && (
-                    <input 
-                      type="text" 
-                      name="concat"
-                      value={formValues.concat}
-                      onChange={handleValueChange}
-                      placeholder="Colunas (Ex: A, B)" 
-                      className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
-                    />
-                  )}
+                  {activeOptions.useConcat && <ColumnSelector field="concat" />}
                 </div>
 
                 <div className="flex flex-col">
                   <div 
-                    className="flex items-center gap-3 cursor-pointer group"
+                    className={`flex items-center gap-3 cursor-pointer group ${!selectedFile ? 'opacity-50 pointer-events-none' : ''}`}
                     onClick={() => handleOptionToggle('useIgnore')}
                   >
                     {activeOptions.useIgnore ? (
@@ -336,22 +385,12 @@ const App = () => {
                     )}
                     <span className="text-sm font-medium" style={{ color: "var(--color-text-chrome)" }}>Ignorar colunas</span>
                   </div>
-                  {activeOptions.useIgnore && (
-                    <input 
-                      type="text" 
-                      name="ignore"
-                      value={formValues.ignore}
-                      onChange={handleValueChange}
-                      placeholder="Colunas (Ex: C)" 
-                      className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
-                    />
-                  )}
+                  {activeOptions.useIgnore && <ColumnSelector field="ignore" />}
                 </div>
 
                 <div className="flex flex-col">
                   <div 
-                    className="flex items-center gap-3 cursor-pointer group"
+                    className={`flex items-center gap-3 cursor-pointer group ${!selectedFile ? 'opacity-50 pointer-events-none' : ''}`}
                     onClick={() => handleOptionToggle('useManualPhone')}
                   >
                     {activeOptions.useManualPhone ? (
@@ -361,17 +400,7 @@ const App = () => {
                     )}
                     <span className="text-sm font-medium" style={{ color: "var(--color-text-chrome)" }}>Forçar coluna de telefone</span>
                   </div>
-                  {activeOptions.useManualPhone && (
-                    <input 
-                      type="text" 
-                      name="manualPhone"
-                      value={formValues.manualPhone}
-                      onChange={handleValueChange}
-                      placeholder="Coluna (Ex: G)" 
-                      className="mt-3 px-3 py-2 text-sm outline-none rounded"
-                      style={{ background: "var(--color-chrome-light)", color: "var(--color-text-chrome)", border: "1px solid var(--color-accent-dim)", fontFamily: "var(--font-mono)" }}
-                    />
-                  )}
+                  {activeOptions.useManualPhone && <ColumnSelector field="manualPhone" isSingle={true} />}
                 </div>
               </div>
             </div>

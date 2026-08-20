@@ -7,7 +7,6 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import DataGridArea from './components/DataGridArea';
 
-// Converte índice numérico para letra de coluna (ex: 0 -> A, 1 -> B)
 const getColumnLetter = (colIndex) => {
   let letter = '';
   let tempIndex = colIndex;
@@ -18,7 +17,6 @@ const getColumnLetter = (colIndex) => {
   return letter;
 };
 
-// Realiza o parse do CSV mantendo o cabeçalho original para pré-visualização
 const parseCSVPreview = (csvText) => {
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length === 0 || !csvText) return { cols: [], rows: [], rawHeaders: [] };
@@ -82,7 +80,6 @@ const App = () => {
     manualPhone: ''
   });
 
-  // Recalcula as definições de coluna injetando a classe CSS dinamicamente no cabeçalho
   const dynamicColumnDefs = useMemo(() => {
     if (viewState !== 'preview') return baseColumnDefs;
 
@@ -188,15 +185,23 @@ const App = () => {
 
   const handleProcess = async () => {
     if (!selectedFile) return;
+
+    if (activeOptions.useConcat && formValues.concat.length < 2) {
+      setErrorMsg('Para concatenar, selecione pelo menos 2 colunas na lista.');
+      return;
+    }
+
     setIsProcessing(true);
     setErrorMsg(null);
 
     try {
       const requestFormData = new FormData();
       requestFormData.append('file', selectedFile);
-      requestFormData.append('extras', activeOptions.useExtras ? formValues.extras.join(', ') : '');
-      requestFormData.append('concat', activeOptions.useConcat ? formValues.concat.join(', ') : '');
-      requestFormData.append('ignore', activeOptions.useIgnore ? formValues.ignore.join(', ') : '');
+      
+      // Padronizacao completa: todos os arrays sao enviados separados por virgula
+      requestFormData.append('extras', activeOptions.useExtras ? formValues.extras.join(',') : '');
+      requestFormData.append('concat', activeOptions.useConcat ? formValues.concat.join(',') : '');
+      requestFormData.append('ignore', activeOptions.useIgnore ? formValues.ignore.join(',') : '');
       requestFormData.append('manual_phone', activeOptions.useManualPhone ? formValues.manualPhone : '');
 
       const apiResponse = await fetch('http://localhost:8000/api/normalize', {
@@ -288,7 +293,7 @@ const App = () => {
         <DataGridArea 
           viewState={viewState}
           rowData={rowData}
-          columnDefs={dynamicColumnDefs} // Injeta o cabeçalho calculado
+          columnDefs={dynamicColumnDefs}
           defaultColDef={defaultColDef}
           gridRef={gridRef}
           handleDownload={handleDownload}

@@ -8,16 +8,27 @@ const DataGridArea = ({
   columnDefs, 
   defaultColDef, 
   gridRef, 
-  handleDownload 
+  handleDownload,
+  gridContext
 }) => {
   return (
     <div className="flex-1 flex flex-col p-6" style={{ background: "var(--color-cell-bg)" }}>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: "var(--color-chrome-mid)" }}>
-          {viewState === 'preview' && <><Eye size={20} className="text-slate-400"/> Pré-visualização (Original)</>}
-          {viewState === 'processed' && 'Dados Processados'}
-          {viewState === 'empty' && 'Visualizador'}
-        </h2>
+        
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: "var(--color-chrome-mid)" }}>
+            {viewState === 'preview' && <><Eye size={20} className="text-slate-400"/> Pré-visualização (Original)</>}
+            {viewState === 'processed' && 'Dados Processados'}
+            {viewState === 'empty' && 'Visualizador'}
+          </h2>
+          
+          {viewState === 'processed' && (
+            <span className="px-3 py-1 bg-amber-50 text-amber-700 text-xs font-semibold rounded border border-amber-200 shadow-sm">
+               Visualização ilustrativa. A base será exportada sem cabeçalho.
+            </span>
+          )}
+        </div>
+
         <button 
           onClick={handleDownload}
           className="flex items-center gap-2 px-4 py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-100"
@@ -46,6 +57,7 @@ const DataGridArea = ({
             rowData={rowData}
             columnDefs={columnDefs}
             defaultColDef={defaultColDef}
+            context={gridContext}
           />
         )}
       </div>

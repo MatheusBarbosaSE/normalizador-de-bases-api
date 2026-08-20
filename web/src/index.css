@@ -57,3 +57,16 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
 }
+
+/* Estilos dinâmicos injetados no cabeçalho do AG Grid */
+.ag-header-cell-ignored {
+  background-color: #fee2e2 !important;
+  border-bottom: 3px solid #ef4444 !important;
+  transition: all 0.2s ease-in-out;
+}
+
+.ag-header-cell-target {
+  background-color: #e0e7ff !important;
+  border-bottom: 3px solid #4f6ef7 !important;
+  transition: all 0.2s ease-in-out;
+}

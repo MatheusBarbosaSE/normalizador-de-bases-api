@@ -1,16 +1,39 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { Play, Download, UploadCloud, FileText, CheckSquare, Square } from 'lucide-react';
+import { Play, Download, UploadCloud, FileText, CheckSquare, Square, AlertCircle } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
+
+// Funcao auxiliar para converter a string CSV do Back-end no formato exigido pelo AG Grid
+const parseCSV = (csvText) => {
+  const lines = csvText.trim().split('\n');
+  if (lines.length === 0) return { cols: [], rows: [] };
+
+  const headers = lines[0].split(',');
+  const cols = headers.map(h => ({ field: h, headerName: h, flex: 1 }));
+
+  const rows = lines.slice(1).map(line => {
+    const values = line.split(',');
+    const rowObj = {};
+    headers.forEach((h, i) => {
+      rowObj[h] = values[i] ? values[i].trim() : '';
+    });
+    return rowObj;
+  });
+
+  return { cols, rows };
+};
 
 const App = () => {
   const gridRef = useRef(null);
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+  
   const [rowData, setRowData] = useState([]);
   const [columnDefs, setColumnDefs] = useState([]);
+  const [rawCsv, setRawCsv] = useState(null); // Armazena a string original para o download
   
   const [activeOptions, setActiveOptions] = useState({
     useExtras: false,
@@ -37,7 +60,69 @@ const App = () => {
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
-    if (file) setSelectedFile(file);
+    if (file) {
+      setSelectedFile(file);
+      setErrorMsg(null);
+    }
+  };
+
+  // Funcao principal que dispara a requisicao para a API Python
+  const handleProcess = async () => {
+    if (!selectedFile) return;
+    
+    setIsProcessing(true);
+    setErrorMsg(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      
+      // Envia os parametros apenas se o checkbox correspondente estiver ativo
+      formData.append('extras', activeOptions.useExtras ? formValues.extras : '');
+      formData.append('concat', activeOptions.useConcat ? formValues.concat : '');
+      formData.append('ignore', activeOptions.useIgnore ? formValues.ignore : '');
+      formData.append('manual_phone', activeOptions.useManualPhone ? formValues.manualPhone : '');
+
+      const response = await fetch('http://localhost:8000/api/normalize', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Falha ao processar base no servidor.');
+      }
+
+      const data = await response.json();
+      
+      // Salva o texto bruto para o momento da exportacao
+      setRawCsv(data.csv_content);
+
+      // Converte o texto em estrutura de grid para visualizacao
+      const { cols, rows } = parseCSV(data.csv_content);
+      setColumnDefs(cols);
+      setRowData(rows);
+
+    } catch (error) {
+      setErrorMsg(error.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Gera um arquivo fisico na memoria do navegador e forca o download
+  const handleDownload = () => {
+    if (!rawCsv) return;
+    
+    const blob = new Blob([rawCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'base_higienizada.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const defaultColDef = useMemo(() => ({
@@ -45,7 +130,6 @@ const App = () => {
     filter: true,
     resizable: true,
     minWidth: 120,
-    flex: 1,
   }), []);
 
   return (
@@ -143,7 +227,7 @@ const App = () => {
               </div>
               
               <div className="flex flex-col gap-4">
-                {/* Opcao: Manter Extras */}
+                
                 <div className="flex flex-col">
                   <div 
                     className="flex items-center gap-3 cursor-pointer group"
@@ -174,7 +258,6 @@ const App = () => {
                   )}
                 </div>
 
-                {/* Opcao: Concatenar */}
                 <div className="flex flex-col">
                   <div 
                     className="flex items-center gap-3 cursor-pointer group"
@@ -205,7 +288,6 @@ const App = () => {
                   )}
                 </div>
 
-                {/* Opcao: Ignorar */}
                 <div className="flex flex-col">
                   <div 
                     className="flex items-center gap-3 cursor-pointer group"
@@ -236,7 +318,6 @@ const App = () => {
                   )}
                 </div>
 
-                {/* Opcao: Forcar Telefone */}
                 <div className="flex flex-col">
                   <div 
                     className="flex items-center gap-3 cursor-pointer group"
@@ -269,9 +350,17 @@ const App = () => {
 
               </div>
             </div>
+            
+            {/* Mensagem de Erro da API */}
+            {errorMsg && (
+              <div className="mx-5 mb-4 p-3 rounded flex gap-2 items-start" style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid var(--color-danger)" }}>
+                <AlertCircle size={16} style={{ color: "var(--color-danger)", flexShrink: 0, marginTop: 2 }} />
+                <span className="text-xs" style={{ color: "var(--color-danger)" }}>{errorMsg}</span>
+              </div>
+            )}
+            
           </div>
 
-          {/* Botao de Processamento Fixo na Base */}
           <div 
             className="absolute bottom-0 left-0 w-full p-4"
             style={{ 
@@ -280,6 +369,7 @@ const App = () => {
             }}
           >
             <button 
+              onClick={handleProcess}
               className="w-full flex items-center justify-center gap-2 py-3 rounded text-sm font-bold transition-opacity disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
               style={{ background: "var(--color-accent)", color: "#ffffff" }}
               disabled={!selectedFile || isProcessing}
@@ -296,7 +386,8 @@ const App = () => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold" style={{ color: "var(--color-chrome-mid)" }}>Dados Processados</h2>
             <button 
-              className="flex items-center gap-2 px-4 py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleDownload}
+              className="flex items-center gap-2 px-4 py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-100"
               style={{ 
                 background: "var(--color-cell-header)", 
                 color: "var(--color-chrome-mid)",

@@ -102,32 +102,30 @@ def process_spreadsheet(
     
     # 2. Aplicar regras de concatenacao
     if concat_str:
-        groups = [s.strip().upper() for s in concat_str.split(",") if s.strip()]
-        for group in groups:
-            letters = [s.strip() for s in group.split("+") if s.strip()]
-            if len(letters) > 1:
-                col_names = []
-                for letter in letters:
-                    col = letter_to_col.get(letter)
-                    if not col:
-                        raise ValueError(f"A coluna '{letter}' informada para concatenação não existe.")
-                    col_names.append(col)
-                
-                new_col_name = f"CONCAT({'+'.join(letters)})"
-                
-                # Concatena os valores das colunas separando por espaco
-                df[new_col_name] = df[col_names].apply(
-                    lambda row: " ".join(row.dropna().astype(str).str.strip().replace("nan", "")).strip(), 
-                    axis=1
-                )
-                
-                original_letters[new_col_name] = new_col_name
-                virtual_concat_cols.append({
-                    "name": new_col_name,
-                    "letters": letters
-                })
-            else:
-                raise ValueError("Para concatenar, informe as letras separadas por '+' (ex: A+B).")
+        letters = [s.strip().upper() for s in concat_str.split(",") if s.strip()]
+        if len(letters) > 1:
+            col_names = []
+            for letter in letters:
+                col = letter_to_col.get(letter)
+                if not col:
+                    raise ValueError(f"A coluna '{letter}' informada para concatenação não existe.")
+                col_names.append(col)
+            
+            new_col_name = f"CONCAT({'+'.join(letters)})"
+            
+            # Concatena os valores das colunas separando por espaco
+            df[new_col_name] = df[col_names].apply(
+                lambda row: " ".join(row.dropna().astype(str).str.strip().replace("nan", "")).strip(), 
+                axis=1
+            )
+            
+            original_letters[new_col_name] = new_col_name
+            virtual_concat_cols.append({
+                "name": new_col_name,
+                "letters": letters
+            })
+        elif len(letters) == 1:
+            raise ValueError("Para concatenar, selecione pelo menos 2 colunas.")
 
     # 3. Deteccao automatica de colunas basicas
     col_name = column_selector.select_name_column(df, used_columns)
